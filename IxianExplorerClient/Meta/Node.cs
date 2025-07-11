@@ -1,6 +1,7 @@
 ﻿using IxianExplorerClient.API;
 using IxianExplorerClient.Network;
 using IXICore;
+using IXICore.Inventory;
 using IXICore.Meta;
 using IXICore.Network;
 using IXICore.RegNames;
@@ -8,26 +9,13 @@ using IXICore.Utils;
 
 namespace IxianExplorerClient.Meta
 {
-    class Balance
-    {
-        public Address address = null;
-        public IxiNumber balance = 0;
-        public ulong blockHeight = 0;
-        public byte[] blockChecksum = null;
-        public bool verified = false;
-
-        public Balance(Address address, IxiNumber balance)
-        {
-            this.address = address;
-            this.balance = balance;
-        }
-    }
-
     class Node : IxianNode
     {
         public static APIServer? apiServer;
 
         public static StatsConsoleScreen? statsConsoleScreen = null;
+
+        private static Thread mainLoopThread;
 
         public static bool running = false;
 
@@ -37,10 +25,9 @@ namespace IxianExplorerClient.Meta
 
         public static TransactionInclusion tiv = null;
 
-        public static ulong networkBlockHeight = 0;
-        public static byte[] networkBlockChecksum = null;
-        public static int networkBlockVersion = 0;
         private bool generatedNewWallet = false;
+
+        public static NetworkClientManagerStatic networkClientManagerStatic = null;
 
         public Node()
         {
@@ -80,10 +67,30 @@ namespace IxianExplorerClient.Meta
             ActivityStorage.prepareStorage("", false);
 
             // Init TIV
-            tiv = new TransactionInclusion();
+            tiv = new TransactionInclusion(new ECTransactionInclusionCallbacks(), false);
 
             // Start activity scanner
             ActivityScanner.start();
+
+            mainLoopThread = new Thread(mainLoop);
+            mainLoopThread.Name = "Main_Loop_Thread";
+            mainLoopThread.Start();
+        }
+
+        static void mainLoop()
+        {
+            while (running)
+            {
+                try
+                {
+                    CoreProtocolMessage.fetchSectorNodes(IxianHandler.primaryWalletAddress, CoreConfig.maxRelaySectorNodesToRequest);
+                }
+                catch (Exception e)
+                {
+                    Logging.error("Exception occured in mainLoop: " + e);
+                }
+                Thread.Sleep(30000);
+            }
         }
 
         private bool initWallet()
@@ -186,6 +193,13 @@ namespace IxianExplorerClient.Meta
         {
             IxianHandler.forceShutdown = true;
 
+            if (mainLoopThread != null)
+            {
+                mainLoopThread.Interrupt();
+                mainLoopThread.Join();
+                mainLoopThread = null;
+            }
+
             // Stop TIV
             tiv.stop();
 
@@ -215,12 +229,19 @@ namespace IxianExplorerClient.Meta
 
         public void start()
         {
-            PresenceList.init(IxianHandler.publicIP, 0, 'C');
+            PresenceList.init(IxianHandler.publicIP, 0, 'C', CoreConfig.clientKeepAliveInterval);
 
             // Start the network queue
             NetworkQueue.start();
 
+            InventoryCache.init(new InventoryCacheClient(tiv));
+
+            RelaySectors.init(CoreConfig.relaySectorLevels, null);
+
             // Start the network client manager
+            networkClientManagerStatic = new NetworkClientManagerStatic(Config.maxRelaySectorNodesToConnectTo);
+
+            NetworkClientManager.init(networkClientManagerStatic);
             NetworkClientManager.start(2);
 
             // Start the API server
@@ -244,42 +265,6 @@ namespace IxianExplorerClient.Meta
             }
         }
 
-        static public void setNetworkBlock(ulong block_height, byte[] block_checksum, int block_version)
-        {
-            networkBlockHeight = block_height;
-            networkBlockChecksum = block_checksum;
-            networkBlockVersion = block_version;
-        }
-
-        public override void receivedTransactionInclusionVerificationResponse(byte[] txid, bool verified)
-        {
-            string status = "NOT VERIFIED";
-            if (verified)
-            {
-                status = "VERIFIED";
-                PendingTransactions.remove(txid);
-            }
-            Console.WriteLine("Transaction {0} is {1}\n", Transaction.getTxIdString(txid), status);
-        }
-
-        public override void receivedBlockHeader(Block block_header, bool verified)
-        {
-            foreach (Balance balance in balances)
-            {
-                if (balance.blockChecksum != null && balance.blockChecksum.SequenceEqual(block_header.blockChecksum))
-                {
-                    balance.verified = true;
-                }
-            }
-
-            if (block_header.blockNum >= networkBlockHeight)
-            {
-                IxianHandler.status = NodeStatus.ready;
-                setNetworkBlock(block_header.blockNum, block_header.blockChecksum, block_header.version);
-            }
-            processPendingTransactions();
-        }
-
         public override ulong getLastBlockHeight()
         {
             if (tiv.getLastBlockHeader() == null)
@@ -296,7 +281,14 @@ namespace IxianExplorerClient.Meta
 
         public override ulong getHighestKnownNetworkBlockHeight()
         {
-            return networkBlockHeight;
+            ulong bh = getLastBlockHeight();
+            ulong netBlockNum = CoreProtocolMessage.determineHighestNetworkBlockNum();
+            if (bh < netBlockNum)
+            {
+                bh = netBlockNum;
+            }
+
+            return bh;
         }
 
         public override int getLastBlockVersion()
@@ -310,11 +302,15 @@ namespace IxianExplorerClient.Meta
             return tiv.getLastBlockHeader().version;
         }
 
-        public override bool addTransaction(Transaction tx, bool force_broadcast)
+        public override bool addTransaction(Transaction tx, List<Address> relayNodeAddresses, bool force_broadcast)
         {
             // TODO Send to peer if directly connectable
-            CoreProtocolMessage.broadcastProtocolMessage(new char[] { 'M', 'H' }, ProtocolMessageCode.transactionData2, tx.getBytes(true, true), null);
-            if (PendingTransactions.addPendingLocalTransaction(tx))
+            foreach (var address in relayNodeAddresses)
+            {
+                NetworkClientManager.sendToClient(address, ProtocolMessageCode.transactionData2, tx.getBytes(true, true), null);
+            }
+            //CoreProtocolMessage.broadcastProtocolMessage(new char[] { 'M', 'H' }, ProtocolMessageCode.transactionData2, tx.getBytes(true, true), null);
+            if (PendingTransactions.addPendingLocalTransaction(tx, relayNodeAddresses))
             {
                 transactionsAdded++;
             }
@@ -403,12 +399,14 @@ namespace IxianExplorerClient.Meta
 
                     if (cur_time - tx_time > 40) // if the transaction is pending for over 40 seconds, resend
                     {
-                        CoreProtocolMessage.broadcastProtocolMessage(new char[] { 'M', 'H' }, ProtocolMessageCode.transactionData2, t.getBytes(true), null);
+                        foreach (var address in entry.relayNodeAddresses)
+                        {
+                            NetworkClientManager.sendToClient(address, ProtocolMessageCode.transactionData2, t.getBytes(true, true), null);
+                        }
                         entry.addedTimestamp = cur_time;
-                        entry.confirmedNodeList.Clear();
                     }
 
-                    if (entry.confirmedNodeList.Count() > 3) // already received 3+ feedback
+                    if (entry.confirmedNodeList.Count() >= 2) // already received 2+ feedback
                     {
                         continue;
                     }

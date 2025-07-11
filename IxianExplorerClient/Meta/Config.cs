@@ -23,12 +23,16 @@ namespace IxianExplorerClient.Meta
         public static int explorerAPITransactionPaginationLimit = 100;
         public static string externalIp = "";
 
-        public static readonly string version = "xexc-0.9.3"; // ExplorerClient version
+        public static readonly string version = "xexc-0.9.4"; // ExplorerClient version
 
         public static string explorerAPIBaseUrl = "https://explorer.ixian.io/api/v1";
         public static string explorerAPIKey = ""; // Set the API KEY here or supply it via commandline or config file
         public static bool enableActivityScanner = true;
 
+
+        public static int maxRelaySectorNodesToConnectTo = 3;
+
+        public static int maxConnectedStreamingNodes = 6;
 
         private static string outputHelp()
         {
@@ -118,10 +122,10 @@ namespace IxianExplorerClient.Meta
                         externalIp = value;
                         break;
                     case "addPeer":
-                        CoreNetworkUtils.seedNodes.Add(new string[2] { value, null });
+                        NetworkUtils.seedNodes.Add(new string[2] { value, null });
                         break;
                     case "addTestnetPeer":
-                        CoreNetworkUtils.seedTestNetNodes.Add(new string[2] { value, null });
+                        NetworkUtils.seedTestNetNodes.Add(new string[2] { value, null });
                         break;
                     case "maxLogSize":
                         maxLogSize = int.Parse(value);
