@@ -1,21 +1,39 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
-  <Import Project="..\..\Ixian-Core\IXICore.projitems" Label="Shared" />
+	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+		<DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.1" />
-    <PackageReference Include="FluentCommandLineParser" Version="1.4.3" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Open.Nat" Version="2.1.0" />
-    <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
-    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.7" />
-  </ItemGroup>
+	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+		<DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+	</PropertyGroup>
 
+	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('macOS'))">
+		<DefineConstants>$(DefineConstants);MACCATALYST</DefineConstants>
+	</PropertyGroup>
+
+	<Import Project="..\..\Ixian-Core\IXICore.projitems" Label="Shared" />
+
+	<ItemGroup>
+		<PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+		<PackageReference Include="FluentCommandLineParser-netstandard" Version="1.4.3.13" />
+		<PackageReference Include="Mono.Nat" Version="3.0.4" />
+		<PackageReference Include="MQTTnet" Version="5.1.0.1559" />
+		<PackageReference Include="RocksDB" Version="10.4.2.64152" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+	</ItemGroup>
+
+	<Target Name="CopyHTMLToOutput" AfterTargets="CoreCompile">
+		<ItemGroup>
+			<IXIPB1 Include="$(SolutionDir)\..\Ixian-Core\html\**\*.*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(IXIPB1)" DestinationFolder="$(OutputPath)\html\%(RecursiveDir)" ContinueOnError="true" />
+	</Target>
 </Project>

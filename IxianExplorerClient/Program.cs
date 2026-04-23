@@ -2,18 +2,14 @@
 using IXICore;
 using IXICore.Meta;
 using IXICore.Utils;
-using System.Reflection;
+using System;
+using System.IO;
+using System.Threading;
 
 namespace IxianExplorerClient
 {
     class Program
     {
-        private static Thread? mainLoopThread;
-
-        public static bool noStart = false;
-
-        public static bool running = false;
-
         private static Node? node = null;
 
         static void Main(string[] args)
@@ -25,10 +21,25 @@ namespace IxianExplorerClient
                 Console.Clear();
             }
 
-            // Start logging
-            if (!Logging.start(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), Config.logVerbosity))
+            ConsoleHelpers.prepareWindowsConsole();
+
+            ConsoleHelpers.verboseConsoleOutput = true;
+
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine(string.Format("QuIXI {0} ({1})", Config.version, CoreConfig.version));
+            Console.ResetColor();
+
+            // Read configuration from command line
+            Config.init(args);
+
+            if (!Directory.Exists(Config.dataFolder))
             {
-                IxianHandler.forceShutdown = true;
+                Directory.CreateDirectory(Config.dataFolder);
+            }
+
+            // Start logging
+            if (!Logging.start(Config.logFolderPath, Config.logVerbosity))
+            {
                 Logging.info("Press ENTER to exit.");
                 Console.ReadLine();
                 return;
@@ -38,20 +49,12 @@ namespace IxianExplorerClient
                 ConsoleHelpers.verboseConsoleOutput = true;
                 Logging.consoleOutput = ConsoleHelpers.verboseConsoleOutput;
                 e.Cancel = true;
-                IxianHandler.forceShutdown = true;
+                IxianHandler.requestShutdown();
             };
 
-            if (!onStart(args))
+            if (onStart(args))
             {
-                return;
-            }
-
-            if (Node.apiServer != null)
-            {
-                while (IxianHandler.forceShutdown == false)
-                {
-                    Thread.Sleep(1000);
-                }
+                mainLoop();
             }
 
             onStop();
@@ -59,20 +62,11 @@ namespace IxianExplorerClient
 
         static bool onStart(string[] args)
         {
-            Console.WriteLine("Ixian Explorer Client {0} ({1})", Config.version, CoreConfig.version);
-
-            // Read configuration from command line
-            if(!Config.init(args))
-            {
-                Environment.Exit(2);
-                return false;
-            }
-
             // Set the logging options
             Logging.setOptions(Config.maxLogSize, Config.maxLogCount);
             Logging.flush();
 
-            Logging.info("Starting Ixian Explorer Lite Client {0} ({1})", Config.version, CoreConfig.version);
+            Logging.info("Starting QuIXI {0} ({1})", Config.version, CoreConfig.version);
             Logging.info("Operating System is {0}", Platform.getOSNameAndVersion());
 
             // Log the parameters to notice any changes
@@ -82,41 +76,32 @@ namespace IxianExplorerClient
             // Initialize the node
             node = new Node();
 
-            if (noStart)
+            if (IxianHandler.forceShutdown)
             {
                 Thread.Sleep(1000);
                 return false;
             }
 
             // Start the node
-            node.start();
-            
-            running = true;
-
-            if (mainLoopThread != null)
+            if (!node.start(Config.verboseOutput))
             {
-                mainLoopThread.Interrupt();
-                mainLoopThread.Join();
-                mainLoopThread = null;
+                Thread.Sleep(1000);
+                return false;
             }
 
-            mainLoopThread = new Thread(mainLoop);
-            mainLoopThread.Name = "Main_Loop_Thread";
-            mainLoopThread.Start();
-
             if (ConsoleHelpers.verboseConsoleOutput)
-                Console.WriteLine("-----------\nPress Ctrl-C or use the /shutdown API to stop the S2 process at any time.\n");
+                Console.WriteLine("-----------\nPress Ctrl-C or use the /shutdown API to stop the QuIXI process at any time.\n");
 
             return true;
         }
 
         static void mainLoop()
         {
-            while (running)
+            while (!IxianHandler.forceShutdown)
             {
                 try
                 {
-                    if (Console.KeyAvailable)
+                    if (!Console.IsInputRedirected && Console.KeyAvailable)
                     {
                         ConsoleKeyInfo key = Console.ReadKey();
 
@@ -125,14 +110,13 @@ namespace IxianExplorerClient
                             ConsoleHelpers.verboseConsoleOutput = !ConsoleHelpers.verboseConsoleOutput;
                             Logging.consoleOutput = ConsoleHelpers.verboseConsoleOutput;
                             Console.CursorVisible = ConsoleHelpers.verboseConsoleOutput;
-                            if (ConsoleHelpers.verboseConsoleOutput == false)
-                                Node.statsConsoleScreen.clearScreen();
+                            Console.Clear();
                         }
                         else if (key.Key == ConsoleKey.Escape)
                         {
                             ConsoleHelpers.verboseConsoleOutput = true;
                             Logging.consoleOutput = ConsoleHelpers.verboseConsoleOutput;
-                            IxianHandler.forceShutdown = true;
+                            IxianHandler.requestShutdown();
                         }
 
                     }
@@ -148,28 +132,14 @@ namespace IxianExplorerClient
 
         static void onStop()
         {
-            running = false;
-
-            if (noStart == false)
-            {
-                // Stop the node
-                Node.stop();
-            }
+            // Stop the node
+            IxianHandler.shutdown();
 
             // Stop logging
-            Logging.flush();
             Logging.stop();
 
-            if (noStart == false)
-            {
-                Console.WriteLine("");
-                Console.WriteLine("Ixian Explorer Lite Client stopped.");
-            }
-        }
-
-        public static void stop()
-        {
-            running = false;
+            Console.WriteLine("");
+            Console.WriteLine("Ixian Explorer Lite Client stopped.");
         }
     }
 }

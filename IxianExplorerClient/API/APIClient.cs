@@ -1,10 +1,18 @@
 ﻿using IxianExplorerClient.Meta;
 using IXICore;
+using IXICore.Activity;
 using IXICore.Meta;
+using IXICore.Utils;
 using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using static IXICore.Transaction;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
@@ -126,7 +134,7 @@ namespace IxianExplorerClient.API
             }
             catch (Exception ex)
             {
-                Logging.warn($"Fetching wallet balance for {address_string}: {ex.Message}");
+                Logging.warn($"Fetching transaction count for {address_string}: {ex.Message}");
                 return 0;
             }
         }
@@ -135,7 +143,7 @@ namespace IxianExplorerClient.API
         {
             try
             {
-                int activity_type = -1;
+                ActivityType activity_type = ActivityType.None;
 
                 string txid = transactionElement.GetProperty("txid").GetString()!;
                 int type = int.Parse(transactionElement.GetProperty("type").GetString()!);
@@ -148,10 +156,10 @@ namespace IxianExplorerClient.API
 
                 // Deserialize 'from'
                 string fromRaw = transactionElement.GetProperty("from").GetString()!;
-                IDictionary<Address, ToEntry> fromList = JsonSerializer.Deserialize<Dictionary<string, string>>(fromRaw)!
+                IDictionary<byte[], IxiNumber> fromList = JsonSerializer.Deserialize<Dictionary<string, string>>(fromRaw)!
                     .ToDictionary(
-                        kv => new Address(kv.Key),
-                        kv => new ToEntry(version, new IxiNumber(kv.Value))
+                        kv => new Address(kv.Key).addressNoChecksum,
+                        kv => new IxiNumber(kv.Value), new ByteArrayComparer()
                     );
 
                 // Deserialize 'to'
@@ -159,89 +167,24 @@ namespace IxianExplorerClient.API
                 IDictionary<Address, ToEntry> toList = JsonSerializer.Deserialize<Dictionary<string, string>>(toRaw)!
                     .ToDictionary(
                         kv => new Address(kv.Key),
-                        kv => new ToEntry(version, new IxiNumber(kv.Value))
+                        kv => new ToEntry(version, new IxiNumber(kv.Value)), new AddressComparer()
                     );
                 string fee = transactionElement.GetProperty("fee").GetString()!;
 
-                Address primary_address = fromList.First().Key;
-
-                Dictionary<byte[], List<byte[]>> from_wallet_list = null;
-                Dictionary<byte[], List<byte[]>> to_wallet_list = null;
-                to_wallet_list = IxianHandler.extractMyAddressesFromAddressList(toList);
-                if (to_wallet_list != null)
+                var tx = new Transaction(type)
                 {
-                    activity_type = (int)ActivityType.TransactionReceived;
-                }
-                else
-                {
-                    // Scan the fromList
-                    from_wallet_list = IxianHandler.extractMyAddressesFromAddressList(fromList);
+                    id = Transaction.txIdLegacyToV8(txid),
+                    toList = toList,
+                    fromList = fromList,
+                    pubKey = new Address(fromList.First().Key),
+                    blockHeight = ulong.Parse(txid.Split('-').First()),
+                    applied = applied,
+                    timeStamp = timestamp,
+                    amount = amount,
+                    fee = fee
+                };
 
-                    if (from_wallet_list != null)
-                    {
-                        activity_type = (int)ActivityType.TransactionSent;
-                        primary_address = new Address(from_wallet_list.First().Value.First());
-                        amount = fromList.First().Value.amount.ToString();
-                    }
-                }
-
-                // Skip if not received or sent type transaction
-                if (activity_type == -1)
-                {
-                    Logging.warn($"{addressString}: {txid} skipped");
-                    return;
-                }
-
-                int status = (int)ActivityStatus.Final;
-
-                if (to_wallet_list != null)
-                {
-                    // Received
-                    foreach (var extractedWallet in to_wallet_list)
-                    {
-                        foreach (var waddress in extractedWallet.Value)
-                        {
-                            Address addr = new Address(waddress);
-                            foreach (var entry in toList)
-                            {
-                                if (addr.addressNoChecksum.SequenceEqual(entry.Key.addressNoChecksum))
-                                {
-                                    IxiNumber toAmount = entry.Value.amount;
-                                    Activity activity = new Activity(extractedWallet.Key,
-                                                                    addr.ToString(),
-                                                                    primary_address.ToString(),
-                                                                    toList,
-                                                                    activity_type,
-                                                                    dataBytes,
-                                                                    toAmount.ToString(),
-                                                                    timestamp,
-                                                                    status,
-                                                                    applied,
-                                                                    txid);
-
-                                    ActivityStorage.insertActivity(activity);
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // Sent
-                    Address wallet = primary_address;
-                    Activity activity = new Activity(IxianHandler.getWalletStorageBySecondaryAddress(primary_address).getSeedHash(),
-                                                    wallet.ToString(),
-                                                    primary_address.ToString(),
-                                                    toList,
-                                                    activity_type,
-                                                    dataBytes,
-                                                    amount,
-                                                    timestamp,
-                                                    status,
-                                                    applied,
-                                                    txid);
-                    ActivityStorage.insertActivity(activity);
-                }
+                IxianHandler.addTransactionToActivityStorage(Node.activityStorage, tx, applied, true);
 
                 Logging.info($"{addressString}: {txid} added");
             }
@@ -254,6 +197,17 @@ namespace IxianExplorerClient.API
 
         public static bool getTransactionsByAddressAsync(string addressString, int page = 1)
         {
+            ulong upToBlockHeight = getLatestBlockHeight();
+            // Wait 10 blocks in case of reorgs
+            if (upToBlockHeight > 10)
+            {
+                upToBlockHeight -= 10;
+            }
+            else
+            {
+                return false;
+            }
+
             try
             {
                 using HttpClient httpClient = new();
@@ -282,6 +236,10 @@ namespace IxianExplorerClient.API
 
                     foreach (JsonElement transactionElement in root.EnumerateArray())
                     {
+                        if (transactionElement.GetProperty("applied").GetUInt64() >= upToBlockHeight)
+                        {
+                            continue;
+                        }
                         processTransaction(transactionElement, addressString);
                     }
                     return true;
@@ -290,12 +248,60 @@ namespace IxianExplorerClient.API
             catch (Exception ex)
             {
                 Logging.warn($"Fetching transaction activity for {addressString}: {ex.Message}");
-                return false;
             }
+
+            return false;
+        }
+
+        public static ulong getLatestBlockHeight()
+        {
+            try
+            {
+                using HttpClient httpClient = new();
+                httpClient.DefaultRequestHeaders.Add("API-KEY", Config.explorerAPIKey);
+                HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, $"{Config.explorerAPIBaseUrl}/blocks/latest");
+                HttpResponseMessage response = httpClient.Send(request);
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return 0;
+                }
+
+                response.EnsureSuccessStatusCode(); // Throw exception if status code is not successful
+                string content = response.Content.ReadAsStringAsync().Result;
+
+                using (JsonDocument doc = JsonDocument.Parse(content))
+                {
+                    JsonElement root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object)
+                    {
+                        Logging.warn($"Unexpected response format for block");
+                        return 0;
+                    }
+
+                    return root.GetProperty("id").GetUInt64();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logging.warn($"Fetching latest block height: {ex.Message}");
+            }
+
+            return 0;
         }
 
         public static bool getTransactionUpdatesByAddressAsync(string addressString, string lastTxid)
         {
+            ulong upToBlockHeight = getLatestBlockHeight();
+            // Wait 10 blocks in case of reorgs
+            if (upToBlockHeight > 10)
+            {
+                upToBlockHeight -= 10;
+            } else
+            {
+                return false;
+            }
+
             try
             {
                 using HttpClient httpClient = new();
@@ -324,18 +330,22 @@ namespace IxianExplorerClient.API
 
                     foreach (JsonElement transactionElement in root.EnumerateArray())
                     {
+                        if (transactionElement.GetProperty("applied").GetUInt64() >= upToBlockHeight)
+                        {
+                            continue;
+                        }
                         processTransaction(transactionElement, addressString);
                     }
                 }
+                Node.updateBalance(addressString);
+                return true;
             }
             catch (Exception ex)
             {
                 Logging.warn($"Fetching transaction activity for {addressString}: {ex.Message}");             
             }
 
-            Node.updateBalance(addressString);
             return false;
-        }
-      
+        }      
     }
 }

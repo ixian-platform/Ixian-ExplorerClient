@@ -1,5 +1,7 @@
 ﻿using IxianExplorerClient.Meta;
 using IXICore;
+using System;
+using System.Collections.Generic;
 using System.Net;
 
 
@@ -7,11 +9,9 @@ namespace IxianExplorerClient.API
 {
     class APIServer : GenericAPIServer
     {
-        public APIServer(List<string> listen_URLs, Dictionary<string, string> authorized_users = null, List<string> allowed_IPs = null)
+        public APIServer()
         {
-            // Start the API server
-            start(listen_URLs, authorized_users, allowed_IPs);
-        }
+        }     
 
         protected override bool processRequest(HttpListenerContext context, string methodName, Dictionary<string, object> parameters)
         {
@@ -26,6 +26,13 @@ namespace IxianExplorerClient.API
             if (methodName.Equals("scan", StringComparison.OrdinalIgnoreCase))
             {
                 response = onScan(parameters);
+            }
+
+            if (methodName.Equals("resources", StringComparison.OrdinalIgnoreCase))
+            {
+                onResources(context);
+                context.Response.Close();
+                return true;
             }
 
             // Check for default endpoints

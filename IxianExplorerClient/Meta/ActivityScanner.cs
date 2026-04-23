@@ -1,6 +1,11 @@
 ﻿using IxianExplorerClient.API;
 using IXICore;
+using IXICore.Activity;
 using IXICore.Meta;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 
 namespace IxianExplorerClient.Meta
 {
@@ -50,14 +55,10 @@ namespace IxianExplorerClient.Meta
 
         public static bool clearStorage()
         {
-            if (!ActivityStorage.clearStorage(0))
-            {
-                Logging.error("Cannot clear activity storage");
-                shouldStop = true;
-                active = false;
-                return true;
-            }
-            return false;
+            active = false;
+            shouldStop = true;
+            Node.activityStorage.deleteData();
+            return true;
         }
 
         private static void fetchAllTransactionsForAddress(string address)
@@ -103,13 +104,12 @@ namespace IxianExplorerClient.Meta
 
         private static void fetchUpdates()
         {
-
             try
             {
                 List<Address> address_list = IxianHandler.getWalletStorage().getMyAddresses();
                 foreach (Address addr in address_list)
                 {
-                    List<Activity> res = ActivityStorage.getActivitiesByAddress(addr.ToString(), 0, 1, true);
+                    List<ActivityObject> res = Node.activityStorage.getActivitiesByAddress(addr, null, null, 1, true);
                     if(res == null)
                     {
                         continue;
@@ -120,8 +120,8 @@ namespace IxianExplorerClient.Meta
                         continue;
                     }
 
-                    Activity latest_activity = res.First();
-                    APIClient.getTransactionUpdatesByAddressAsync(addr.ToString(), latest_activity.txid);
+                    ActivityObject latest_activity = res.First();
+                    APIClient.getTransactionUpdatesByAddressAsync(addr.ToString(), Transaction.getTxIdString(latest_activity.id));
                 }
             }
             catch (Exception e)

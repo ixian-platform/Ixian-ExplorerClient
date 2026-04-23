@@ -7,33 +7,41 @@ namespace IxianExplorerClient.Meta
 {
     internal class ECTransactionInclusionCallbacks : TransactionInclusionCallbacks
     {
-        public void receivedTIVResponse(byte[] txid, bool verified)
+        public void transactionVerified(Transaction tx)
         {
-            string status = "NOT VERIFIED";
-            if (verified)
-            {
-                status = "VERIFIED";
-                PendingTransactions.remove(txid);
-            }
-            Console.WriteLine("Transaction {0} is {1}\n", Transaction.getTxIdString(txid), status);
         }
 
-        public void receivedBlockHeader(Block block_header, bool verified)
+        public void transactionRejected(Transaction tx)
         {
-            foreach (Balance balance in IxianHandler.balances)
+        }
+
+        public void transactionExpired(Transaction tx)
+        {
+        }
+
+        public void transactionCannotVerify(Transaction tx)
+        {
+        }
+
+        public void receivedBlockHeader(Block blockHeader, bool verified)
+        {
+            foreach (Balance balance in IxianHandler.balances.Values)
             {
-                if (balance.blockChecksum != null && balance.blockChecksum.SequenceEqual(block_header.blockChecksum))
+                if (balance.blockChecksum != null && balance.blockChecksum.SequenceEqual(blockHeader.blockChecksum))
                 {
                     balance.verified = true;
                 }
             }
 
-            if (block_header.blockNum >= IxianHandler.getHighestKnownNetworkBlockHeight())
-            {
-                IxianHandler.status = NodeStatus.ready;
-            }
+            /*if (blockHeader.blockNum + 10 >= IxianHandler.getHighestKnownNetworkBlockHeight()
+                && (IxianHandler.status == NodeStatus.warmUp || IxianHandler.status == NodeStatus.stalled))
+            {*/
+            IxianHandler.status = NodeStatus.ready;
+            //}
+        }
 
-            Node.processPendingTransactions();
+        public void blockReorg(Block blockHeader)
+        {
         }
     }
 }

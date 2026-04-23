@@ -12,7 +12,7 @@ Ixian-ExplorerClient is a console-based software designed to expose a RESTful AP
 ## Requirements
 
 - Ixian Explorer API key
-- .NET SDK (version 8.0 or higher)
+- .NET SDK (version 10.0 or higher)
 
 ## Usage
 
@@ -31,7 +31,7 @@ Ixian-ExplorerClient is a console-based software designed to expose a RESTful AP
 
 3. Run the software:
    ```sh
-   cd IxianExplorerClient/bin/Release/net8.0/
+   cd IxianExplorerClient/bin/Release/net10.0/
    ./IxianExplorerClient --apiKey YOURAPIKEY
    ```
 
