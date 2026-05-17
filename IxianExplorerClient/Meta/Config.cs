@@ -14,7 +14,7 @@ namespace IxianExplorerClient.Meta
     public class Config
     {
         // Read-only values
-        public static readonly string version = "xexc-0.9.8d";
+        public static readonly string version = "xexc-0.9.8e";
 
         public static readonly string checkVersionUrl = "https://resources.ixian.io/xexc-update.txt";
         public static readonly int checkVersionSeconds = 6 * 60 * 60; // 6 hours
