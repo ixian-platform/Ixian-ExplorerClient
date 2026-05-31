@@ -441,38 +441,6 @@ namespace IxianExplorerClient.Meta
             return tsd.blockHash;
         }
 
-        public static FriendMessage? addMessageWithType(byte[] id, FriendMessageType type, Address wallet_address, int channel, string message, bool local_sender = false, Address? sender_address = null, long timestamp = 0, bool fire_local_notification = true, int payable_data_len = 0)
-        {
-            FriendMessage? friend_message = FriendList.addMessageWithType(id, type, wallet_address, channel, message, local_sender, sender_address, timestamp, fire_local_notification, payable_data_len);
-            if (friend_message != null)
-            {
-                bool oldMessage = false;
-
-                Friend friend = FriendList.getFriend(wallet_address);
-
-                if (!friend.online)
-                {
-                    StreamProcessor.fetchFriendsPresence(friend, true);
-                }
-
-                // Check if the message was sent before the friend was added to the contact list
-                if (friend.addedTimestamp > friend_message.timestamp)
-                {
-                    oldMessage = true;
-                }
-
-                if (!friend_message.read)
-                {
-                    // Increase the unread counter if this is a new message
-                    if (!oldMessage)
-                        friend.metaData.unreadMessageCount++;
-
-                    friend.saveMetaData();
-                }
-            }
-            return friend_message;
-        }
-
         // Cleans the storage cache and logs
         public static bool cleanCacheAndLogs()
         {

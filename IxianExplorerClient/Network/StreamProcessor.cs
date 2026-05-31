@@ -48,7 +48,14 @@ namespace IxianExplorerClient.Network
                     case SpixiMessageCode.chat:
                         if (friend != null && !friend.bot)
                         {
-                            sendReceivedConfirmation(friend, sender_address, message.id, spixi_message.channel);
+                            sendReceivedConfirmation(friend, message.id, spixi_message.channel);
+                        }
+                        break;
+
+                    case SpixiMessageCode.chatStream:
+                        if (friend != null && !friend.bot)
+                        {
+                            sendReceivedConfirmation(friend, message.id, spixi_message.channel);
                         }
                         break;
                 }
