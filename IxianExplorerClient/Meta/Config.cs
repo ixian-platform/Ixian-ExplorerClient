@@ -14,7 +14,7 @@ namespace IxianExplorerClient.Meta
     public class Config
     {
         // Read-only values
-        public static readonly string version = "xexc-0.9.8f";
+        public static readonly string version = "xexc-0.9.8g";
 
         public static readonly string checkVersionUrl = "https://resources.ixian.io/xexc-update.txt";
         public static readonly int checkVersionSeconds = 6 * 60 * 60; // 6 hours
@@ -455,7 +455,7 @@ namespace IxianExplorerClient.Meta
 
             // Debug
 
-            cmd_parser.Setup<string>("walletPassword").Callback(value => dangerCommandlinePasswordCleartextUnsafe = value).SetDefault("");
+            cmd_parser.Setup<string>("walletPassword").Callback(value => dangerCommandlinePasswordCleartextUnsafe = value).Required();
 
             cmd_parser.Setup<int>("logVerbosity").Callback(value => logVerbosity = value).Required();
 

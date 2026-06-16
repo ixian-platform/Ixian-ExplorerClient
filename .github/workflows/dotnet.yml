@@ -1,0 +1,39 @@
+name: .NET
+
+on:
+  push:
+    branches: [ 'master', 'development' ]
+
+defaults:
+  run:
+    working-directory: Ixian-ExplorerClient
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Ixian-ExplorerClient
+      uses: actions/checkout@v4
+      with:
+        path: Ixian-ExplorerClient
+
+    - name: Checkout Ixian-Core
+      uses: actions/checkout@v4
+      with:
+        repository: ixian-platform/Ixian-Core
+        path: Ixian-Core
+        ref: ${{ github.ref_name }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Building Ixian-ExplorerClient
+      run: dotnet build
+
